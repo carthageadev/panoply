@@ -1,6 +1,6 @@
-# Cartridge Studio
+# Panoply
 
-A retro game launcher for the web — a 3D N64 cartridge carousel with real
+A retro game launcher.
 label art pulled live from ScreenScraper.
 
 ## Run it
