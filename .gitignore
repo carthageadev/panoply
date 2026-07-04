@@ -1,0 +1,23 @@
+# Environment files (keep .env.example for reference)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Node modules and build artifacts
+node_modules/
+dist/
+build/
+.vite/
+
+# Lock files
+bun.lock
+package-lock.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Design/reference videos (reference only, not part of build)
+designmotion1.mp4
+designmotion2.mp4
