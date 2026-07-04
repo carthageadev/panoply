@@ -1,0 +1,689 @@
+:root {
+  --ui-scale: 1;
+  --bg: #ececeb;
+  --dot: #c6c6c4;
+  --ink: #1f1f1f;
+  --pill-white: #ffffff;
+  --pill-grey: #d9d9d7;
+  --pill-dark: #1d1d1d;
+  --pill-dark-ink: #f5f5f3;
+  --card: #fafaf9;
+  --card-border: #d4d4d2;
+  --red: #e5484d;
+  --purple: #8e4ec6;
+  --green: #46a758;
+  --blue: #3b9eff;
+  --yellow: #ffc53d;
+  --shadow: 0 2rem 0 rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme='dark'] {
+  --bg: #222222;
+  --dot: #3b3b3a;
+  --ink: #ececea;
+  --pill-white: #373736;
+  --pill-grey: #444443;
+  --pill-dark: #0e0e0e;
+  --pill-dark-ink: #f0f0ee;
+  --card: #2c2c2b;
+  --card-border: #494948;
+  --shadow: 0 2rem 0 rgba(0, 0, 0, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* UI-scale trick: 1rem == 1 "UI pixel" multiplied by --ui-scale.
+   Every UI dimension below is in rem, so the whole HUD/menu layer scales
+   together; the 3D canvas and dot-grid backdrop are untouched. */
+html {
+  font-size: calc(1px * var(--ui-scale, 1));
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'DotGothic16', 'VT323', monospace;
+  font-size: 16rem;
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot) 1.4px, transparent 1.5px);
+  background-size: 24px 24px;
+  overflow: hidden;
+  user-select: none;
+  transition: background-color 0.25s;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+}
+
+.scene-canvas {
+  position: absolute !important;
+  inset: 0;
+}
+
+/* ---------- pills & chips ---------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rem;
+  border: none;
+  border-radius: 10rem;
+  padding: 8rem 18rem;
+  font-family: inherit;
+  font-size: 21rem;
+  line-height: 1;
+  color: var(--ink);
+  background: var(--pill-white);
+  box-shadow: var(--shadow);
+  cursor: default;
+}
+
+button.pill,
+.chip,
+.side-btn,
+.app-tile,
+.add-platform {
+  transition:
+    transform 0.07s ease-out,
+    filter 0.08s ease-out;
+}
+
+button.pill {
+  cursor: pointer;
+}
+
+button.pill:hover,
+.chip:hover,
+.side-btn:hover,
+.app-tile:hover,
+.add-platform:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1rem);
+}
+
+button.pill:active,
+.chip:active,
+.side-btn:active,
+.app-tile:active,
+.add-platform:active {
+  transform: translateY(1rem) scale(0.94);
+}
+
+.pill-white {
+  background: var(--pill-white);
+}
+
+.pill-grey {
+  background: var(--pill-grey);
+}
+
+.pill-dark {
+  background: var(--pill-dark);
+  color: var(--pill-dark-ink);
+}
+
+.pill-red {
+  background: var(--red);
+  color: #fff;
+}
+
+.pill-purple {
+  background: var(--purple);
+  color: #fff;
+}
+
+.pill-green {
+  background: var(--green);
+  color: #fff;
+}
+
+.pill-blue {
+  background: var(--blue);
+  color: #10243c;
+}
+
+.pill-yellow {
+  background: var(--yellow);
+  color: #3a2b00;
+}
+
+.pill.small {
+  font-size: 16rem;
+  padding: 6rem 12rem;
+}
+
+.pill.selected {
+  outline: 3rem solid var(--blue);
+}
+
+/* Shoulder-button chips: white shell with a black rounded-square key.
+   Outer corner (screen-edge side) gets the strong radius, inner stays tight. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  width: 44rem;
+  height: 40rem;
+  padding: 0;
+  font-family: inherit;
+  background: var(--pill-white);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.chip .key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28rem;
+  height: 28rem;
+  border-radius: 8rem;
+  background: #161616;
+  color: #fff;
+  font-size: 17rem;
+  line-height: 1;
+}
+
+.chip-l {
+  border-radius: 17rem 7rem 7rem 17rem;
+}
+
+.chip-r {
+  border-radius: 7rem 17rem 17rem 7rem;
+}
+
+/* Edge-hugging pills: strong radius on the corners facing the screen edge */
+.corner-left {
+  border-radius: 18rem 8rem 8rem 18rem !important;
+}
+
+.corner-right {
+  border-radius: 8rem 18rem 18rem 8rem !important;
+}
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24rem;
+  height: 24rem;
+  border-radius: 50%;
+  background: #161616;
+  color: #fff;
+  font-size: 14rem;
+  flex: none;
+}
+
+.pill-red .glyph,
+.pill-purple .glyph,
+.pill-green .glyph {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- HUD layout ---------- */
+
+.hud {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.hud > * {
+  pointer-events: auto;
+}
+
+.hud-top {
+  top: 20rem;
+  left: 24rem;
+  right: 24rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.platform-switch {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6rem;
+}
+
+.platform-name {
+  min-width: 200rem;
+  justify-content: center;
+}
+
+.clock {
+  letter-spacing: 2rem;
+}
+
+.status-pill {
+  gap: 12rem;
+  padding: 10rem 16rem;
+}
+
+.hud-title {
+  left: 0;
+  right: 0;
+  bottom: 108rem;
+  display: flex;
+  justify-content: center;
+}
+
+.title-pill {
+  font-size: 23rem;
+}
+
+.hud-bottom {
+  left: 24rem;
+  right: 24rem;
+  bottom: 24rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hud-bottom-right {
+  display: flex;
+  gap: 14rem;
+}
+
+/* ---------- toast ---------- */
+
+.toast {
+  position: absolute;
+  z-index: 20;
+  top: 84rem;
+  left: 50%;
+  transform: translateX(-50%);
+  animation:
+    toast-in 0.1s cubic-bezier(0.2, 1.4, 0.4, 1),
+    toast-out 0.16s ease-in 2.2s forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10rem) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, -8rem) scale(0.96);
+  }
+}
+
+/* HUD pill content swap (game title, platform name): quick console-y pop */
+.swap-in {
+  animation: swap-in 0.09s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+@keyframes swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(7rem) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- overlays & cards ---------- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 28, 22, 0.35);
+  backdrop-filter: blur(2px);
+  animation: overlay-in 0.09s ease-out;
+}
+
+/* Panels pop in with a slight overshoot, and animate out before unmounting */
+.overlay > * {
+  animation: card-in 0.12s cubic-bezier(0.25, 1.45, 0.4, 1);
+}
+
+.overlay.closing {
+  animation: overlay-out 0.09s ease-in forwards;
+  pointer-events: none;
+}
+
+.overlay.closing > * {
+  animation: card-out 0.09s ease-in forwards;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16rem) scale(0.93);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-out {
+  to {
+    opacity: 0;
+    transform: translateY(12rem) scale(0.95);
+  }
+}
+
+.card {
+  background: var(--card);
+  border: 2rem solid var(--card-border);
+  border-radius: 14rem;
+  box-shadow: 0 6rem 0 rgba(0, 0, 0, 0.18);
+  padding: 24rem;
+}
+
+.card h2 {
+  margin: 0 0 14rem;
+  font-size: 26rem;
+  font-weight: normal;
+}
+
+.card-actions {
+  display: flex;
+  gap: 12rem;
+  margin-top: 18rem;
+}
+
+.muted {
+  opacity: 0.62;
+  margin: 6rem 0;
+}
+
+.small-text {
+  font-size: 15rem;
+}
+
+/* inspect */
+.inspect-card {
+  width: min(420rem, 90vw);
+  text-align: center;
+}
+
+.inspect-art {
+  width: 220rem;
+  height: auto;
+  image-rendering: pixelated;
+  border-radius: 6rem;
+  border: 2rem solid var(--card-border);
+  background: #fff;
+}
+
+/* apps */
+.apps-card {
+  width: min(520rem, 92vw);
+}
+
+.apps-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14rem;
+}
+
+.app-tile {
+  border: 2rem solid var(--card-border);
+  border-radius: 10rem;
+  background: var(--pill-grey);
+  font-family: inherit;
+  font-size: 20rem;
+  color: var(--ink);
+  padding: 26rem 10rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+/* ---------- settings ---------- */
+
+.settings-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14rem;
+}
+
+.settings-card {
+  display: flex;
+  width: min(860rem, 94vw);
+  height: min(540rem, 78vh);
+  padding: 0;
+  overflow: hidden;
+}
+
+.settings-sidebar {
+  width: 232rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10rem;
+  padding: 18rem 14rem;
+  border-right: 2rem solid var(--card-border);
+}
+
+.side-btn {
+  display: flex;
+  align-items: center;
+  gap: 12rem;
+  border: none;
+  border-radius: 9rem;
+  padding: 10rem 14rem;
+  font-family: inherit;
+  font-size: 19rem;
+  text-align: left;
+  color: var(--ink);
+  background: var(--pill-grey);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.side-btn.active {
+  outline: 3rem solid var(--blue);
+}
+
+.side-btn.donate {
+  margin-top: auto;
+  background: var(--green);
+  color: #fff;
+}
+
+.side-icon {
+  width: 20rem;
+  text-align: center;
+  flex: none;
+}
+
+.settings-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20rem 22rem;
+  overflow-y: auto;
+}
+
+/* Section body slides in when switching sidebar tabs */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: section-in 0.1s ease-out;
+}
+
+@keyframes section-in {
+  from {
+    opacity: 0;
+    transform: translateX(12rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.platform-row {
+  display: flex;
+  align-items: center;
+  gap: 12rem;
+}
+
+.platform-row-title {
+  flex: 1;
+  font-size: 21rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-list {
+  list-style: none;
+  margin: 12rem 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.game-list li {
+  display: flex;
+  align-items: center;
+  gap: 10rem;
+  padding: 5rem 2rem;
+  font-size: 17rem;
+  opacity: 0.85;
+}
+
+.dot {
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  background: var(--card-border);
+  flex: none;
+}
+
+.dot.ok {
+  background: var(--green);
+}
+
+.add-platform {
+  border: none;
+  border-radius: 10rem;
+  background: var(--pill-grey);
+  font-family: inherit;
+  font-size: 20rem;
+  color: var(--ink);
+  padding: 14rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.settings-footer {
+  display: flex;
+  gap: 12rem;
+}
+
+.placeholder-panel h3 {
+  margin: 4rem 0 10rem;
+  font-size: 23rem;
+  font-weight: normal;
+}
+
+.theme-row {
+  display: flex;
+  gap: 12rem;
+  margin-top: 12rem;
+}
+
+/* ---------- appearance scale sliders ---------- */
+
+.scale-row {
+  display: flex;
+  align-items: center;
+  gap: 14rem;
+  margin: 14rem 0 4rem;
+}
+
+.scale-row label {
+  width: 110rem;
+  font-size: 18rem;
+  flex: none;
+}
+
+.scale-row input[type='range'] {
+  flex: 1;
+  accent-color: var(--blue);
+  height: 6rem;
+  cursor: pointer;
+}
+
+.scale-value {
+  width: 60rem;
+  text-align: right;
+  font-size: 17rem;
+  opacity: 0.7;
+  flex: none;
+}
+
+.reset-row {
+  margin-top: 18rem;
+}
+
+.feedback-box {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 17rem;
+  color: var(--ink);
+  background: var(--pill-white);
+  border: 2rem solid var(--card-border);
+  border-radius: 8rem;
+  padding: 10rem;
+  margin-bottom: 12rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .overlay > *,
+  .swap-in,
+  .toast,
+  .settings-section {
+    animation-duration: 0.01ms !important;
+  }
+}
