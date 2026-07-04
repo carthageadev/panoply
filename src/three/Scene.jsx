@@ -24,14 +24,19 @@ function springStep(pos, vel, target, dt, omega = SPRING_OMEGA, zeta = SPRING_ZE
   return [pos + nextVel * dt, nextVel]
 }
 
-// Insert timeline (seconds): hop above the row while doing a full spin,
-// hang at the apex for a beat, then drop below the carousel into the "slot".
-const INSERT = { rise: 0.42, hang: 0.12, drop: 0.3 }
+// Insert timeline (seconds): a bouncy hop above the row with a full spin —
+// the rise overshoots its apex and springs back — then a fast, decisive drop
+// into the "slot" at the bottom of the screen. The landing is dead solid (the
+// cart is physically seated, it can't rebound) and it stays poking out
+// part-way, N64 style, instead of vanishing off-screen.
+const INSERT = { rise: 0.3, hang: 0.1, drop: 0.16 }
 const INSERT_APEX_Y = 1.6
-const INSERT_SLOT_Y = -3.7
+const INSERT_SLOT_Y = -1.7 // roughly a third of the cart buried below the screen edge
 
 const easeOutCubic = (p) => 1 - Math.pow(1 - p, 3)
 const easeInQuad = (p) => p * p
+// Fast launch that overshoots past 1 and springs back — the bouncy rise
+const easeOutBack = (p) => 1 + 2.4 * Math.pow(p - 1, 3) + 1.4 * Math.pow(p - 1, 2)
 const easeInOutQuad = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2)
 const CART_HEIGHT = 2.35 // world units the cartridge is normalized to
 const FALLBACK_LABEL = '/image.png'
@@ -130,6 +135,7 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
   const vel = useRef({ x: 0, y: 0, s: 0 })
   const rot = useRef({ pitch: 0, yaw: 0 })
   const launchStart = useRef(null)
+  const settling = useRef(false) // post-insert return to the row: still rigid
   const uscale = useRef(1) // uniform base scale; squash/stretch is applied on top
   const reveal = useRef(1) // 0..1 fade progress for platform-switch crossfade
   const delayTimer = useRef(null) // staggers the reveal wave outward from center
@@ -168,6 +174,7 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
     // reveal crossfades + pops ("pings") into place instead of hard-spawning.
     if (!shouldShow) {
       launchStart.current = null
+      settling.current = false
       delayTimer.current = null
       if (reveal.current > 0 && outer.current.visible) {
         reveal.current = Math.max(0, reveal.current - dt / 0.09)
@@ -215,30 +222,37 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
       const lt = t - launchStart.current
       const { rise, hang, drop } = INSERT
       if (lt < rise) {
-        pos.y = -0.1 + (INSERT_APEX_Y + 0.1) * easeOutCubic(lt / rise)
+        // Bouncy launch: shoots up fast, overshoots the apex, springs back
+        pos.y = -0.1 + (INSERT_APEX_Y + 0.1) * easeOutBack(lt / rise)
       } else if (lt < rise + hang) {
         pos.y = INSERT_APEX_Y + Math.sin((lt - rise) * 14) * 0.03
       } else if (lt < rise + hang + drop) {
+        // Fast accelerating drop straight into the slot
         const q = easeInQuad((lt - rise - hang) / drop)
         pos.y = INSERT_APEX_Y + (INSERT_SLOT_Y - INSERT_APEX_Y) * q
       } else {
-        pos.y = INSERT_SLOT_Y // held in the slot until App ends the launch
+        pos.y = INSERT_SLOT_Y // seated dead solid until App ends the launch
       }
       vel.current.y = 0
       const spinP = Math.min(lt / (rise + hang), 1)
       spin = 2 * Math.PI * easeInOutQuad(spinP)
       flightTilt = Math.sin(spinP * Math.PI) * 0.24
     } else {
+      if (launchStart.current !== null) settling.current = true
       launchStart.current = null
-      // After an insert the cart sits below the slot; the spring pops it back up.
+      // After an insert the cart sits in the slot; the spring pops it back up.
       ;[pos.y, vel.current.y] = springStep(pos.y, vel.current.y, targetY, dt, 13, 0.7)
+      if (settling.current && Math.abs(pos.y - targetY) < 0.04 && Math.abs(vel.current.y) < 0.2)
+        settling.current = false
     }
 
-    // Squash & stretch: elongate along vertical motion (reveal pop, insert
-    // flight), squash sideways to conserve volume — classic animation juice.
+    // Squash & stretch: elongate along vertical motion, squash sideways to
+    // conserve volume. Platform-switch reveals only — a rigid cartridge being
+    // inserted must NOT deform, so the insert flight is exempt.
     const vy = (pos.y - prevY.current) / Math.max(dt, 1e-4)
     prevY.current = pos.y
-    const stretch = Math.min(Math.abs(vy) * 0.028, 0.22)
+    const stretch =
+      inFlight || settling.current ? 0 : Math.min(Math.abs(vy) * 0.028, 0.22)
     outer.current.scale.set(
       Math.max(0.01, uscale.current * (1 - stretch * 0.5)),
       Math.max(0.01, uscale.current * (1 + stretch)),

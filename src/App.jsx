@@ -236,7 +236,7 @@ export default function App() {
     if (launching) return
     setLaunching(true)
     showToast(`Inserting ${game.title}…`)
-    setTimeout(() => setLaunching(false), 1150) // covers rise + spin + drop + a beat in the slot
+    setTimeout(() => setLaunching(false), 950) // rise + spin + drop + a beat seated in the slot
   }, [game.title, launching, showToast])
 
   // Identity-stable handlers for the memoized Scene
