@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    port: 5174,
     proxy: {
       '/api2': {
         target: 'https://www.screenscraper.fr',
