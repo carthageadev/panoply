@@ -39,3 +39,5 @@ Then open the URL Vite prints (usually http://localhost:5174).
 ## Brand
 
 Panoply is made by **Carthagea**.
+
+The cartridge icon was created by [Robin Lopez](https://thenounproject.com/creator/robinlopez/).
