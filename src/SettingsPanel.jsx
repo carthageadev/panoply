@@ -65,14 +65,14 @@ export default function SettingsPanel({
               <>
                 <div className="platform-row">
                   <div className="platform-row-title">
-                    {platform.id.toUpperCase()} — {platform.name}
+                    {platform.id.toUpperCase()}: {platform.name}
                   </div>
                   <button className="pill pill-blue small" onClick={scan}>
                     ⟳ Scan
                   </button>
                   <button
                     className="pill pill-yellow small"
-                    onClick={() => showToast('Platform editor — coming soon!')}
+                    onClick={() => showToast('Platform editor: coming soon!')}
                   >
                     ✎ Edit
                   </button>
@@ -90,7 +90,7 @@ export default function SettingsPanel({
                 </ul>
                 <button
                   className="add-platform"
-                  onClick={() => showToast('Add Platform — coming soon!')}
+                  onClick={() => showToast('Add Platform: coming soon!')}
                 >
                   Add Platform
                 </button>
@@ -193,10 +193,10 @@ export default function SettingsPanel({
 
             {section === 'about' && (
               <div className="placeholder-panel">
-                <h3>ℹ Cartridge Studio</h3>
-                <p className="muted">v0.1.0 — a love letter to cartridge-era consoles.</p>
+                <h3>ℹ Panoply</h3>
+                <p className="muted">v0.1.0. A 3D game launcher and emulation station by Carthagea.</p>
                 <p className="muted small-text">
-                  3D cartridge shell rendered live · label art via ScreenScraper.fr
+                  3D cartridge shell and label art via ScreenScraper.fr.
                 </p>
               </div>
             )}
