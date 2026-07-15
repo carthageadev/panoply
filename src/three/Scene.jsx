@@ -1,5 +1,14 @@
-import { Suspense, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import {
+  Suspense,
+  memo,
+  startTransition,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
 import { useGLTF, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
@@ -41,59 +50,90 @@ const easeInOutQuad = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) 
 const CART_HEIGHT = 2.35 // world units the cartridge is normalized to
 const FALLBACK_LABEL = '/image.png'
 
+useGLTF.setDecoderPath('/draco/')
 useGLTF.preload('/new-n64cart.glb')
 
-// Loads a label texture with flipY=false (per the model spec) and falls
-// back to the bundled example art if the remote fetch fails. The texture is
-// force-uploaded to the GPU immediately — otherwise the upload would happen
-// mid-frame the first time the cart scrolls into view (a visible hitch).
-function useLabelTexture(url) {
-  const gl = useThree((s) => s.gl)
-  const [tex, setTex] = useState(null)
+// Label images decode asynchronously, then enter a shared GPU queue. The queue
+// uploads at most one texture every few frames, avoiding both startup bursts
+// and a first-scroll upload hitch.
+function useLabelTexture(url, fallback, textureQueue) {
+  const [tex, setTex] = useState(fallback)
   useEffect(() => {
     let alive = true
-    const loader = new THREE.TextureLoader()
+    let loaded = null
+    setTex(fallback)
+    if (!url) return () => {}
+
     const apply = (t) => {
-      if (!alive) return
+      loaded = t
+      if (!alive) {
+        t.image?.close?.()
+        t.dispose()
+        return
+      }
       t.flipY = false
       t.colorSpace = THREE.SRGBColorSpace
       t.anisotropy = 8
-      gl.initTexture(t)
-      setTex(t)
+      textureQueue.push((gl) => {
+        if (!alive) return
+        gl.initTexture(t)
+        setTex(t)
+      })
     }
-    loader.load(url || FALLBACK_LABEL, apply, undefined, () => {
-      if (url) loader.load(FALLBACK_LABEL, apply)
-    })
+    if ('createImageBitmap' in window) {
+      const loader = new THREE.ImageBitmapLoader()
+      loader.setOptions({ imageOrientation: 'none', premultiplyAlpha: 'none' })
+      loader.load(url, (bitmap) => {
+        const texture = new THREE.Texture(bitmap)
+        texture.needsUpdate = true
+        apply(texture)
+      })
+    } else {
+      new THREE.TextureLoader().load(url, apply)
+    }
     return () => {
       alive = false
+      loaded?.image?.close?.()
+      loaded?.dispose()
     }
-  }, [url, gl])
+  }, [url, fallback, textureQueue])
   return tex
+}
+
+function TextureWarmup({ queue }) {
+  const gl = useThree((s) => s.gl)
+  const lastUpload = useRef(-Infinity)
+  useFrame((state) => {
+    if (!queue.length || state.clock.elapsedTime - lastUpload.current < 0.06) return
+    const upload = queue.shift()
+    upload(gl)
+    lastUpload.current = state.clock.elapsedTime
+  })
+  return null
 }
 
 // `carousel` is a mutable store ({ platform, selected[], launching }) read
 // directly by the frame loop. Selection/platform changes never re-render the
 // Canvas tree — React only updates the HUD — so a keypress costs nothing here.
-function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLaunch }) {
+const Cartridge = memo(function Cartridge({
+  platformIndex,
+  index,
+  count,
+  carousel,
+  artUrl,
+  onPick,
+  onLaunch,
+  bodyNode,
+  labelNode,
+  modelOffset,
+  normScale,
+  body,
+  fallbackLabel,
+  textureQueue,
+  progressive,
+}) {
   const outer = useRef()
   const inner = useRef()
-  const { scene } = useGLTF('/new-n64cart.glb')
-  const gl = useThree((s) => s.gl)
-
-  const body = useTexture({
-    map: '/newbase.jpg',
-    normalMap: '/newbase_Normal.tga.png',
-    roughnessMap: '/newbase_Roughness.tga.png',
-  })
-
-  useMemo(() => {
-    Object.values(body).forEach((t) => {
-      t.flipY = false // spec: flipY=false for every texture on this model
-      t.needsUpdate = true
-    })
-    body.map.colorSpace = THREE.SRGBColorSpace
-    Object.values(body).forEach((t) => gl.initTexture(t)) // pre-upload to GPU
-  }, [body, gl])
 
   const bodyMat = useMemo(
     () =>
@@ -106,31 +146,25 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
     [body],
   )
 
-  const labelTex = useLabelTexture(artUrl)
+  const labelTex = useLabelTexture(artUrl, fallbackLabel, textureQueue)
   const labelMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.5 }), [])
+  const disposeTimer = useRef(null)
   useEffect(() => {
     labelMat.map = labelTex
     labelMat.needsUpdate = true
   }, [labelTex, labelMat])
 
-  // Clone the GLTF scene per cartridge, centered and normalized so layout
-  // does not depend on the export scale of the .glb.
-  const { model, normScale } = useMemo(() => {
-    const clone = scene.clone(true)
-    const box = new THREE.Box3().setFromObject(clone)
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
-    clone.position.set(-center.x, -center.y, -center.z)
-    return { model: clone, normScale: CART_HEIGHT / (size.y || 1) }
-  }, [scene])
-
   useEffect(() => {
-    model.traverse((obj) => {
-      if (!obj.isMesh) return
-      if (obj.name === 'model_2') obj.material = bodyMat
-      else if (obj.name === 'boxart') obj.material = labelMat
-    })
-  }, [model, bodyMat, labelMat])
+    // Delay disposal by a task so React StrictMode's setup/cleanup/setup cycle
+    // can cancel it instead of invalidating materials that are still in use.
+    clearTimeout(disposeTimer.current)
+    return () => {
+      disposeTimer.current = setTimeout(() => {
+        bodyMat.dispose()
+        labelMat.dispose()
+      })
+    }
+  }, [bodyMat, labelMat])
 
   const vel = useRef({ x: 0, y: 0, s: 0 })
   const rot = useRef({ pitch: 0, yaw: 0 })
@@ -146,6 +180,7 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
     const t = state.clock.elapsedTime
     const dt = Math.min(delta, 1 / 30) // clamp so springs stay stable after tab switches
     const active = carousel.platform === platformIndex
+    if (!active && !outer.current.visible) return
     const offset = wrapOffset(index - carousel.selected[platformIndex], count)
     const launching = carousel.launching && active
     const isCenter = offset === 0
@@ -288,7 +323,8 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
     const active = carousel.platform === platformIndex
     const off = wrapOffset(index - carousel.selected[platformIndex], count)
     const isC = off === 0
-    outer.current.visible = active && Math.abs(off) <= 2
+    const initiallyVisible = active && Math.abs(off) <= 2
+    outer.current.visible = initiallyVisible && !progressive
     outer.current.position.set(
       off * SPACING,
       (isC ? -0.1 : 0) - (active ? 0 : 1.7),
@@ -316,11 +352,28 @@ function Cartridge({ platformIndex, index, count, carousel, artUrl, onPick, onLa
       onPointerOut={() => (document.body.style.cursor = 'auto')}
     >
       <group ref={inner} scale={normScale}>
-        <primitive object={model} />
+        <group position={modelOffset}>
+          <mesh
+            geometry={bodyNode.geometry}
+            material={bodyMat}
+            position={bodyNode.position}
+            quaternion={bodyNode.quaternion}
+            scale={bodyNode.scale}
+            dispose={null}
+          />
+          <mesh
+            geometry={labelNode.geometry}
+            material={labelMat}
+            position={labelNode.position}
+            quaternion={labelNode.quaternion}
+            scale={labelNode.scale}
+            dispose={null}
+          />
+        </group>
       </group>
     </group>
   )
-}
+})
 
 // Wrap index distance so the carousel is endless in both directions.
 function wrapOffset(rawOffset, count) {
@@ -340,6 +393,161 @@ function CameraRig({ carousel }) {
   return null
 }
 
+function SceneContents({ platforms, artMap, carousel, onPick, onLaunch }) {
+  const { scene } = useGLTF('/new-n64cart.glb')
+  const gl = useThree((s) => s.gl)
+  const [mapImage, normalImage, roughnessImage] = useLoader(
+    THREE.ImageBitmapLoader,
+    ['/newbase.jpg', '/newbase_Normal.tga.png', '/newbase_Roughness.tga.png'],
+    (loader) =>
+      loader.setOptions({
+        imageOrientation: 'none',
+        premultiplyAlpha: 'none',
+        resizeWidth: 1024,
+        resizeHeight: 1024,
+        resizeQuality: 'high',
+      }),
+  )
+  const body = useMemo(
+    () => ({
+      map: new THREE.Texture(mapImage),
+      normalMap: new THREE.Texture(normalImage),
+      roughnessMap: new THREE.Texture(roughnessImage),
+    }),
+    [mapImage, normalImage, roughnessImage],
+  )
+  const fallbackLabel = useTexture(FALLBACK_LABEL)
+  const textureQueue = useMemo(() => [], [])
+
+  // The GLTF has two root meshes. Reuse their decoded geometries and transforms
+  // directly instead of cloning/traversing the 18k-vertex scene per cartridge.
+  const { bodyNode, labelNode, modelOffset, normScale } = useMemo(() => {
+    const bodyMesh = scene.getObjectByName('model_2')
+    const labelMesh = scene.getObjectByName('boxart')
+    const box = new THREE.Box3().setFromObject(scene)
+    const size = box.getSize(new THREE.Vector3())
+    const center = box.getCenter(new THREE.Vector3())
+    return {
+      bodyNode: bodyMesh,
+      labelNode: labelMesh,
+      modelOffset: center.multiplyScalar(-1),
+      normScale: CART_HEIGHT / (size.y || 1),
+    }
+  }, [scene])
+
+  useLayoutEffect(() => {
+    body.map.colorSpace = THREE.SRGBColorSpace
+    Object.values(body).forEach((t) => {
+      t.flipY = false
+      t.needsUpdate = true
+      gl.initTexture(t)
+    })
+    fallbackLabel.flipY = false
+    fallbackLabel.colorSpace = THREE.SRGBColorSpace
+    fallbackLabel.anisotropy = 8
+    fallbackLabel.needsUpdate = true
+    gl.initTexture(fallbackLabel)
+  }, [body, fallbackLabel, gl])
+
+  const firstKey = useRef(
+    `${platforms[carousel.platform].id}:${
+      platforms[carousel.platform].games[carousel.selected[carousel.platform]].title
+    }`,
+  ).current
+  const [mountedKeys, setMountedKeys] = useState(() => new Set([firstKey]))
+
+  useEffect(() => {
+    const remaining = platforms
+      .flatMap((p, platformIndex) =>
+        p.games.map((game, gameIndex) => ({
+          key: `${p.id}:${game.title}`,
+          platformIndex,
+          gameIndex,
+        })),
+      )
+      .filter(({ key }) => key !== firstKey)
+      .sort((a, b) => {
+        const score = ({ platformIndex, gameIndex }) =>
+          (platformIndex === carousel.platform ? 0 : 100 + platformIndex * 10) +
+          Math.min(
+            Math.abs(gameIndex - carousel.selected[platformIndex]),
+            platforms[platformIndex].games.length -
+              Math.abs(gameIndex - carousel.selected[platformIndex]),
+          )
+        return score(a) - score(b)
+      })
+
+    let idleId
+    let timerId
+    let stopped = false
+    const mountOne = () => {
+      if (stopped || !remaining.length) return
+      const { key } = remaining.shift()
+      startTransition(() => {
+        setMountedKeys((current) => {
+          const next = new Set(current)
+          next.add(key)
+          return next
+        })
+      })
+      timerId = setTimeout(schedule, 55)
+    }
+    const schedule = () => {
+      if (stopped || !remaining.length) return
+      const next = remaining[0]
+      const distance = Math.abs(
+        wrapOffset(next.gameIndex - carousel.selected[next.platformIndex], platforms[next.platformIndex].games.length),
+      )
+      // The initial five visible slots should arrive promptly and animate in;
+      // invisible background carts can wait for genuine browser idle time.
+      if (next.platformIndex === carousel.platform && distance <= 2)
+        timerId = setTimeout(mountOne, 70)
+      else if ('requestIdleCallback' in window)
+        idleId = window.requestIdleCallback(mountOne, { timeout: 250 })
+      else timerId = setTimeout(mountOne, 70)
+    }
+    schedule()
+    return () => {
+      stopped = true
+      clearTimeout(timerId)
+      if (idleId !== undefined && 'cancelIdleCallback' in window)
+        window.cancelIdleCallback(idleId)
+    }
+  }, [platforms, carousel, firstKey])
+
+  return (
+    <>
+      <TextureWarmup queue={textureQueue} />
+      {platforms.flatMap((p, pi) =>
+        p.games.map((game, gi) => {
+          const key = `${p.id}:${game.title}`
+          if (!mountedKeys.has(key)) return null
+          return (
+            <Cartridge
+              key={key}
+              platformIndex={pi}
+              index={gi}
+              count={p.games.length}
+              carousel={carousel}
+              artUrl={artMap[key] || null}
+              onPick={onPick}
+              onLaunch={onLaunch}
+              bodyNode={bodyNode}
+              labelNode={labelNode}
+              modelOffset={modelOffset}
+              normScale={normScale}
+              body={body}
+              fallbackLabel={fallbackLabel}
+              textureQueue={textureQueue}
+              progressive={key !== firstKey}
+            />
+          )
+        }),
+      )}
+    </>
+  )
+}
+
 // memo + mutable carousel store: after label art has loaded, this component
 // never re-renders again — arrow presses only touch the frame loop.
 const Scene = memo(function Scene({ platforms, artMap, carousel, onPick, onLaunch }) {
@@ -357,22 +565,13 @@ const Scene = memo(function Scene({ platforms, artMap, carousel, onPick, onLaunc
       <directionalLight position={[-5, 2, -3]} intensity={0.5} />
       <directionalLight position={[0, -3, 4]} intensity={0.25} />
       <Suspense fallback={null}>
-        {/* ALL platforms' carts stay mounted; inactive/off-screen ones just
-            hide — platform switches and scrolling never rebuild anything */}
-        {platforms.flatMap((p, pi) =>
-          p.games.map((game, gi) => (
-            <Cartridge
-              key={`${p.id}:${game.title}`}
-              platformIndex={pi}
-              index={gi}
-              count={p.games.length}
-              carousel={carousel}
-              artUrl={artMap[`${p.id}:${game.title}`] || null}
-              onPick={onPick}
-              onLaunch={onLaunch}
-            />
-          )),
-        )}
+        <SceneContents
+          platforms={platforms}
+          artMap={artMap}
+          carousel={carousel}
+          onPick={onPick}
+          onLaunch={onLaunch}
+        />
       </Suspense>
     </Canvas>
   )

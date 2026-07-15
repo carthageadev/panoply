@@ -6,7 +6,7 @@
 
 const DEV_ID = import.meta.env.VITE_SCREENSCRAPER_DEV_ID
 const DEV_PASSWORD = import.meta.env.VITE_SCREENSCRAPER_DEV_PASSWORD
-const SOFT_NAME = import.meta.env.VITE_SCREENSCRAPER_SOFT_NAME || 'CartridgeStudio'
+const SOFT_NAME = import.meta.env.VITE_SCREENSCRAPER_SOFT_NAME || 'Panoply'
 
 const REGION_ORDER = ['wor', 'us', 'eu', 'ss', 'jp']
 const CACHE_PREFIX = 'cs-art-v1:'
@@ -21,8 +21,53 @@ function apiParams(extra) {
   })
 }
 
-async function getJson(url) {
-  const res = await fetch(url)
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
+const MIN_REQUEST_GAP_MS = 250
+let nextRequestAt = 0
+
+const wait = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(id)
+      reject(signal.reason || new DOMException('Aborted', 'AbortError'))
+    }
+    const id = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+
+async function throttle(signal) {
+  signal?.throwIfAborted()
+  const delay = Math.max(0, nextRequestAt - performance.now())
+  if (delay) await wait(delay, signal)
+  nextRequestAt = performance.now() + MIN_REQUEST_GAP_MS
+}
+
+function retryDelay(res, attempt) {
+  const retryAfter = Number(res.headers.get('retry-after'))
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000
+  return 500 * 2 ** attempt + Math.random() * 200
+}
+
+// ScreenScraper occasionally answers with 429/5xx during a cold-library scan.
+// Keep concurrency at one (the caller's queue) and retry only transient errors.
+export async function fetchWithRetry(url, { signal, retries = 3 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    await throttle(signal)
+    const res = await fetch(url, { signal })
+    if (!RETRYABLE_STATUS.has(res.status) || attempt >= retries) return res
+    await wait(retryDelay(res, attempt), signal)
+  }
+}
+
+async function getJson(url, signal) {
+  const res = await fetchWithRetry(url, { signal })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const text = await res.text()
   return JSON.parse(text) // API returns plain-text errors sometimes; let it throw
@@ -54,7 +99,7 @@ export function clearArtCache() {
   return doomed.length
 }
 
-export async function fetchLabelUrl(title, systemId = 14, searchTerm = title) {
+export async function fetchLabelUrl(title, systemId = 14, searchTerm = title, { signal } = {}) {
   const cacheKey = `${CACHE_PREFIX}${systemId}:${title}`
   const cached = localStorage.getItem(cacheKey)
   if (cached) return cached
@@ -62,6 +107,7 @@ export async function fetchLabelUrl(title, systemId = 14, searchTerm = title) {
   // Phase 1 — search for the game id
   const search = await getJson(
     `/api2/jeuRecherche.php?${apiParams({ systemeid: String(systemId), recherche: searchTerm })}`,
+    signal,
   )
   const rawJeux = search?.response?.jeux
   const list = Array.isArray(rawJeux) ? rawJeux : rawJeux?.jeu ? [].concat(rawJeux.jeu) : []
@@ -69,7 +115,10 @@ export async function fetchLabelUrl(title, systemId = 14, searchTerm = title) {
   if (!game?.id) throw new Error(`No ScreenScraper match for "${title}"`)
 
   // Phase 2 — full media details
-  const info = await getJson(`/api2/jeuInfos.php?${apiParams({ gameid: String(game.id) })}`)
+  const info = await getJson(
+    `/api2/jeuInfos.php?${apiParams({ gameid: String(game.id) })}`,
+    signal,
+  )
   const medias = info?.response?.jeu?.medias || []
 
   // Phase 3 — the cropped cartridge label, best region first

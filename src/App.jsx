@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Scene from './three/Scene.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
 import { PLATFORMS } from './data/games.js'
-import { fetchLabelUrl, cachedLabelUrl } from './lib/screenscraper.js'
+import { fetchLabelUrl, cachedLabelUrl, fetchWithRetry } from './lib/screenscraper.js'
 import { getCachedArt, putCachedArt } from './lib/artCache.js'
 
 function useClock() {
@@ -31,16 +31,28 @@ function BatteryIcon() {
   useEffect(() => {
     if (!navigator.getBattery) return
     let battery
-    navigator.getBattery().then((b) => {
-      battery = b
-      const update = () => {
-        setLevel(b.level)
-        setCharging(b.charging)
-      }
-      update()
-      b.addEventListener('levelchange', update)
-      b.addEventListener('chargingchange', update)
-    })
+    let disposed = false
+    let update
+    navigator
+      .getBattery()
+      .then((b) => {
+        if (disposed) return
+        battery = b
+        update = () => {
+          setLevel(b.level)
+          setCharging(b.charging)
+        }
+        update()
+        b.addEventListener('levelchange', update)
+        b.addEventListener('chargingchange', update)
+      })
+      .catch(() => {})
+    return () => {
+      disposed = true
+      if (!battery || !update) return
+      battery.removeEventListener('levelchange', update)
+      battery.removeEventListener('chargingchange', update)
+    }
   }, [])
   return (
     <svg width="26" height="14" viewBox="0 0 26 14" aria-label="battery">
@@ -109,6 +121,7 @@ export default function App() {
   )
   const toastTimer = useRef(null)
   const [artEpoch, setArtEpoch] = useState(0) // bump to re-run the art fetch queue
+  const artUrls = useRef(new Map())
 
   const platform = PLATFORMS[platformIndex]
   const games = platform.games
@@ -172,45 +185,84 @@ export default function App() {
   }, [])
   const overlayClass = `overlay${overlayClosing ? ' closing' : ''}`
 
-  // Prewarm EVERY platform's label art at startup, sequentially (ScreenScraper
-  // rate limits). Three cache layers, checked in order:
+  // Load the selected platform/nearby games first, then warm the rest one at a
+  // time. Yielding between publishes prevents cached blobs from causing a burst
+  // of React work, image decoding and GPU uploads in the first few frames.
+  // Three cache layers, checked in order:
   //   1. IndexedDB image blobs  -> zero network, art loads fully offline
   //   2. localStorage media URL -> skips the two API lookup calls
   //   3. live API search        -> first time only; result feeds caches 1+2
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
+    const { signal } = controller
+    const pending = PLATFORMS.flatMap((p, platformIndex) =>
+      p.games.map((g, gameIndex) => ({ p, g, platformIndex, gameIndex })),
+    )
+
+    const nextFrame = () =>
+      new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 24)))
+
+    const publish = (key, blob) => {
+      const objectUrl = URL.createObjectURL(blob)
+      const previous = artUrls.current.get(key)
+      artUrls.current.set(key, objectUrl)
+      setArtMap((prev) => ({ ...prev, [key]: objectUrl }))
+      // Give React and any <img> consumer time to commit the replacement.
+      if (previous)
+        requestAnimationFrame(() => requestAnimationFrame(() => URL.revokeObjectURL(previous)))
+    }
+
     ;(async () => {
-      for (const p of PLATFORMS) {
-        for (const g of p.games) {
-          if (cancelled) return
-          const key = `${p.id}:${g.title}`
-          const blobKey = `${p.systemId}:${g.title}`
-          try {
-            let blob = await getCachedArt(blobKey)
-            if (!blob) {
-              const url =
-                cachedLabelUrl(p.systemId, g.title) ||
-                (await fetchLabelUrl(g.title, p.systemId, g.search || g.title))
-              const resp = await fetch(url)
-              const type = resp.headers.get('content-type') || ''
-              if (!resp.ok || !type.startsWith('image')) throw new Error('bad image response')
-              blob = await resp.blob()
-              await putCachedArt(blobKey, blob)
-            }
-            if (!cancelled) {
-              const objectUrl = URL.createObjectURL(blob)
-              setArtMap((prev) => ({ ...prev, [key]: objectUrl }))
-            }
-          } catch {
-            /* keep fallback label for this game */
+      while (pending.length) {
+        if (signal.aborted) return
+        // Re-evaluate priority each turn so switching platform moves its labels
+        // to the front without starting a second concurrent queue.
+        pending.sort((a, b) => {
+          const score = ({ platformIndex, gameIndex }) =>
+            (platformIndex === platformRef.current ? 0 : 100 + platformIndex * 10) +
+            Math.min(
+              Math.abs(gameIndex - carousel.selected[platformIndex]),
+              PLATFORMS[platformIndex].games.length -
+                Math.abs(gameIndex - carousel.selected[platformIndex]),
+            )
+          return score(a) - score(b)
+        })
+        const { p, g } = pending.shift()
+        const key = `${p.id}:${g.title}`
+        const blobKey = `${p.systemId}:${g.title}`
+        try {
+          let blob = await getCachedArt(blobKey)
+          if (!blob) {
+            const url =
+              cachedLabelUrl(p.systemId, g.title) ||
+              (await fetchLabelUrl(g.title, p.systemId, g.search || g.title, { signal }))
+            const resp = await fetchWithRetry(url, { signal })
+            const type = resp.headers.get('content-type') || ''
+            if (!resp.ok || !type.startsWith('image')) throw new Error('bad image response')
+            blob = await resp.blob()
+            await putCachedArt(blobKey, blob)
           }
+          if (!signal.aborted) publish(key, blob)
+        } catch (error) {
+          if (error?.name === 'AbortError') return
+          /* keep fallback label for this game */
         }
+        await nextFrame()
       }
     })()
     return () => {
-      cancelled = true
+      controller.abort()
     }
-  }, [artEpoch])
+  }, [artEpoch, carousel])
+
+  // Blob URLs live outside React/JS garbage collection and must be released.
+  useEffect(
+    () => () => {
+      artUrls.current.forEach((url) => URL.revokeObjectURL(url))
+      artUrls.current.clear()
+    },
+    [],
+  )
 
   const move = useCallback(
     (dir) => {
