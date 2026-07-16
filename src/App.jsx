@@ -127,6 +127,22 @@ export default function App() {
   const platform = PLATFORMS[platformIndex]
   const games = platform.games
   const game = games[gameIndex]
+  const activeArtStatus = artStatus[`${platform.id}:${game.title}`] || { state: 'queued' }
+  const [activeStatusPhase, setActiveStatusPhase] = useState('visible')
+
+  useEffect(() => {
+    let fadeTimer
+    let removeTimer
+    setActiveStatusPhase('visible')
+    if (activeArtStatus.state === 'ready') {
+      fadeTimer = setTimeout(() => setActiveStatusPhase('fading'), 3000)
+      removeTimer = setTimeout(() => setActiveStatusPhase('hidden'), 3350)
+    }
+    return () => {
+      clearTimeout(fadeTimer)
+      clearTimeout(removeTimer)
+    }
+  }, [activeArtStatus.state, platform.id, game.title])
 
   // Mutable store read by the 3D frame loop directly; keeps the memoized
   // Scene from re-rendering on selection/platform changes (the keypress hitch).
@@ -237,7 +253,7 @@ export default function App() {
         })
         const { p, g } = pending.shift()
         const key = statusKey(p, g)
-        const blobKey = `${p.systemId}:${g.title}`
+        const blobKey = `v2:${p.systemId}:${g.title}`
         setStatus(key, 'loading')
         try {
           let blob = await getCachedArt(blobKey)
@@ -372,7 +388,6 @@ export default function App() {
       <Scene
         platforms={PLATFORMS}
         artMap={artMap}
-        artStatus={artStatus}
         carousel={carousel}
         onPick={handlePick}
         onLaunch={handleLaunch}
@@ -408,10 +423,38 @@ export default function App() {
 
       {/* ---- game title ---- */}
       <div className="hud hud-title">
-        <button key={game.title} className="pill pill-white title-pill swap-in" onClick={launch}>
-          <Glyph>A</Glyph>
-          {game.title}
-        </button>
+        <div className="title-stack">
+          {activeStatusPhase !== 'hidden' && (
+            <div
+              className={`art-status art-status-${activeArtStatus.state}${
+                activeStatusPhase === 'fading' ? ' art-status-fade-out' : ''
+              }`}
+              title={activeArtStatus.message || `Label art ${activeArtStatus.state}`}
+              aria-label={activeArtStatus.message || `Label art ${activeArtStatus.state}`}
+            >
+              <span className="art-status-icon">
+                {activeArtStatus.state === 'ready'
+                  ? '✓'
+                  : activeArtStatus.state === 'error'
+                    ? '!'
+                    : '…'}
+              </span>
+              <span>
+                {activeArtStatus.state === 'ready'
+                  ? 'ART OK'
+                  : activeArtStatus.state === 'loading'
+                    ? 'FETCHING'
+                    : activeArtStatus.state === 'error'
+                      ? 'ART ERROR'
+                      : 'QUEUED'}
+              </span>
+            </div>
+          )}
+          <button key={game.title} className="pill pill-white title-pill swap-in" onClick={launch}>
+            <Glyph>A</Glyph>
+            {game.title}
+          </button>
+        </div>
       </div>
 
       {/* ---- bottom HUD ---- */}

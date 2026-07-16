@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { Html, useGLTF, useTexture } from '@react-three/drei'
+import { useGLTF, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
 const SPACING = 3.6
@@ -121,7 +121,6 @@ const Cartridge = memo(function Cartridge({
   count,
   carousel,
   artUrl,
-  artStatus,
   onPick,
   onLaunch,
   bodyNode,
@@ -135,39 +134,6 @@ const Cartridge = memo(function Cartridge({
 }) {
   const outer = useRef()
   const inner = useRef()
-  const statusInView = useRef(false)
-  const [isInView, setIsInView] = useState(false)
-  const [statusPhase, setStatusPhase] = useState('visible')
-  const fetchState = artStatus?.state || 'queued'
-  const fetchLabel =
-    fetchState === 'ready'
-      ? 'ART OK'
-      : fetchState === 'loading'
-        ? 'FETCHING'
-        : fetchState === 'error'
-          ? 'ART ERROR'
-          : 'QUEUED'
-  const fetchIcon = fetchState === 'ready' ? '✓' : fetchState === 'error' ? '!' : '…'
-
-  useEffect(() => {
-    let fadeTimer
-    let removeTimer
-    setStatusPhase('visible')
-    if (fetchState === 'ready') {
-      fadeTimer = setTimeout(() => setStatusPhase('fading'), 3000)
-      removeTimer = setTimeout(() => setStatusPhase('hidden'), 3350)
-    }
-    return () => {
-      clearTimeout(fadeTimer)
-      clearTimeout(removeTimer)
-    }
-  }, [fetchState])
-
-  const setStatusInView = (visible) => {
-    if (statusInView.current === visible) return
-    statusInView.current = visible
-    setIsInView(visible)
-  }
 
   const bodyMat = useMemo(
     () =>
@@ -252,7 +218,6 @@ const Cartridge = memo(function Cartridge({
         if (reveal.current > 0) return
       }
       outer.current.visible = false
-      setStatusInView(false)
       pos.set(targetX, targetY - 1.2, targetZ)
       uscale.current = targetScale * 0.55
       outer.current.scale.setScalar(uscale.current)
@@ -270,7 +235,6 @@ const Cartridge = memo(function Cartridge({
       if (delayTimer.current > 0) return
       delayTimer.current = null
       outer.current.visible = true
-      setStatusInView(true)
       reveal.current = 0
       vel.current.s = 5 // stretch impulse — the "ping"
     }
@@ -361,8 +325,6 @@ const Cartridge = memo(function Cartridge({
     const isC = off === 0
     const initiallyVisible = active && Math.abs(off) <= 2
     outer.current.visible = initiallyVisible && !progressive
-    statusInView.current = outer.current.visible
-    setIsInView(outer.current.visible)
     outer.current.position.set(
       off * SPACING,
       (isC ? -0.1 : 0) - (active ? 0 : 1.7),
@@ -409,20 +371,6 @@ const Cartridge = memo(function Cartridge({
           />
         </group>
       </group>
-      {isInView && statusPhase !== 'hidden' && (
-        <Html position={[0, 1.52, 0]} center distanceFactor={8} zIndexRange={[20, 0]}>
-          <div
-            className={`art-status art-status-${fetchState}${
-              statusPhase === 'fading' ? ' art-status-fade-out' : ''
-            }`}
-            title={artStatus?.message || `Label art ${fetchState}`}
-            aria-label={artStatus?.message || `Label art ${fetchState}`}
-          >
-            <span className="art-status-icon">{fetchIcon}</span>
-            <span>{fetchLabel}</span>
-          </div>
-        </Html>
-      )}
     </group>
   )
 })
@@ -445,7 +393,7 @@ function CameraRig({ carousel }) {
   return null
 }
 
-function SceneContents({ platforms, artMap, artStatus, carousel, onPick, onLaunch }) {
+function SceneContents({ platforms, artMap, carousel, onPick, onLaunch }) {
   const { scene } = useGLTF('/new-n64cart.glb')
   const gl = useThree((s) => s.gl)
   const [mapImage, normalImage, roughnessImage] = useLoader(
@@ -582,7 +530,6 @@ function SceneContents({ platforms, artMap, artStatus, carousel, onPick, onLaunc
               count={p.games.length}
               carousel={carousel}
               artUrl={artMap[key] || null}
-              artStatus={artStatus[key]}
               onPick={onPick}
               onLaunch={onLaunch}
               bodyNode={bodyNode}
@@ -603,7 +550,7 @@ function SceneContents({ platforms, artMap, artStatus, carousel, onPick, onLaunc
 
 // memo + mutable carousel store: after label art has loaded, this component
 // never re-renders again — arrow presses only touch the frame loop.
-const Scene = memo(function Scene({ platforms, artMap, artStatus, carousel, onPick, onLaunch }) {
+const Scene = memo(function Scene({ platforms, artMap, carousel, onPick, onLaunch }) {
   return (
     <Canvas
       className="scene-canvas"
@@ -621,7 +568,6 @@ const Scene = memo(function Scene({ platforms, artMap, artStatus, carousel, onPi
         <SceneContents
           platforms={platforms}
           artMap={artMap}
-          artStatus={artStatus}
           carousel={carousel}
           onPick={onPick}
           onLaunch={onLaunch}
