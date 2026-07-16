@@ -135,6 +135,9 @@ const Cartridge = memo(function Cartridge({
 }) {
   const outer = useRef()
   const inner = useRef()
+  const statusInView = useRef(false)
+  const [isInView, setIsInView] = useState(false)
+  const [statusPhase, setStatusPhase] = useState('visible')
   const fetchState = artStatus?.state || 'queued'
   const fetchLabel =
     fetchState === 'ready'
@@ -145,6 +148,26 @@ const Cartridge = memo(function Cartridge({
           ? 'ART ERROR'
           : 'QUEUED'
   const fetchIcon = fetchState === 'ready' ? '✓' : fetchState === 'error' ? '!' : '…'
+
+  useEffect(() => {
+    let fadeTimer
+    let removeTimer
+    setStatusPhase('visible')
+    if (fetchState === 'ready') {
+      fadeTimer = setTimeout(() => setStatusPhase('fading'), 3000)
+      removeTimer = setTimeout(() => setStatusPhase('hidden'), 3350)
+    }
+    return () => {
+      clearTimeout(fadeTimer)
+      clearTimeout(removeTimer)
+    }
+  }, [fetchState])
+
+  const setStatusInView = (visible) => {
+    if (statusInView.current === visible) return
+    statusInView.current = visible
+    setIsInView(visible)
+  }
 
   const bodyMat = useMemo(
     () =>
@@ -229,6 +252,7 @@ const Cartridge = memo(function Cartridge({
         if (reveal.current > 0) return
       }
       outer.current.visible = false
+      setStatusInView(false)
       pos.set(targetX, targetY - 1.2, targetZ)
       uscale.current = targetScale * 0.55
       outer.current.scale.setScalar(uscale.current)
@@ -246,6 +270,7 @@ const Cartridge = memo(function Cartridge({
       if (delayTimer.current > 0) return
       delayTimer.current = null
       outer.current.visible = true
+      setStatusInView(true)
       reveal.current = 0
       vel.current.s = 5 // stretch impulse — the "ping"
     }
@@ -336,6 +361,8 @@ const Cartridge = memo(function Cartridge({
     const isC = off === 0
     const initiallyVisible = active && Math.abs(off) <= 2
     outer.current.visible = initiallyVisible && !progressive
+    statusInView.current = outer.current.visible
+    setIsInView(outer.current.visible)
     outer.current.position.set(
       off * SPACING,
       (isC ? -0.1 : 0) - (active ? 0 : 1.7),
@@ -382,16 +409,20 @@ const Cartridge = memo(function Cartridge({
           />
         </group>
       </group>
-      <Html position={[0, 1.52, 0]} center distanceFactor={8} zIndexRange={[20, 0]}>
-        <div
-          className={`art-status art-status-${fetchState}`}
-          title={artStatus?.message || `Label art ${fetchState}`}
-          aria-label={artStatus?.message || `Label art ${fetchState}`}
-        >
-          <span className="art-status-icon">{fetchIcon}</span>
-          <span>{fetchLabel}</span>
-        </div>
-      </Html>
+      {isInView && statusPhase !== 'hidden' && (
+        <Html position={[0, 1.52, 0]} center distanceFactor={8} zIndexRange={[20, 0]}>
+          <div
+            className={`art-status art-status-${fetchState}${
+              statusPhase === 'fading' ? ' art-status-fade-out' : ''
+            }`}
+            title={artStatus?.message || `Label art ${fetchState}`}
+            aria-label={artStatus?.message || `Label art ${fetchState}`}
+          >
+            <span className="art-status-icon">{fetchIcon}</span>
+            <span>{fetchLabel}</span>
+          </div>
+        </Html>
+      )}
     </group>
   )
 })

@@ -665,6 +665,10 @@ button.pill:active,
   background: rgba(112, 86, 25, 0.82);
 }
 
+.art-status-fade-out {
+  animation: art-status-fade-out 0.35s ease forwards;
+}
+
 .art-status-loading .art-status-icon,
 .art-status-queued .art-status-icon {
   animation: art-dot-pulse 0.9s ease-in-out infinite alternate;
@@ -678,6 +682,17 @@ button.pill:active,
   to {
     opacity: 1;
     transform: scale(1.08);
+  }
+}
+
+@keyframes art-status-fade-out {
+  from {
+    opacity: 0.95;
+    transform: translateY(-2rem) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8rem) scale(0.92);
   }
 }
 
