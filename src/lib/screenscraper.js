@@ -9,28 +9,7 @@ const DEV_PASSWORD = import.meta.env.VITE_SCREENSCRAPER_DEV_PASSWORD
 const SOFT_NAME = import.meta.env.VITE_SCREENSCRAPER_SOFT_NAME || 'Panoply'
 
 const REGION_ORDER = ['wor', 'us', 'eu', 'ss', 'jp']
-const CACHE_PREFIX = 'cs-art-v2:'
-
-function normalizeTitle(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
-
-function gameNames(game) {
-  const rawNames = Array.isArray(game?.noms)
-    ? game.noms
-    : game?.noms?.nom
-      ? [].concat(game.noms.nom)
-      : []
-  return rawNames
-    .map((name) => (typeof name === 'string' ? name : name?.text))
-    .filter(Boolean)
-    .map(normalizeTitle)
-}
+const CACHE_PREFIX = 'cs-art-v1:'
 
 function apiParams(extra) {
   return new URLSearchParams({
@@ -132,17 +111,7 @@ export async function fetchLabelUrl(title, systemId = 14, searchTerm = title, { 
   )
   const rawJeux = search?.response?.jeux
   const list = Array.isArray(rawJeux) ? rawJeux : rawJeux?.jeu ? [].concat(rawJeux.jeu) : []
-  const requestedNames = [title, searchTerm].map(normalizeTitle).filter(Boolean)
-  const game =
-    list.find((candidate) =>
-      gameNames(candidate).some((name) => requestedNames.some((requested) => name === requested)),
-    ) ||
-    list.find((candidate) =>
-      gameNames(candidate).some((name) =>
-        requestedNames.some((requested) => name.includes(requested) || requested.includes(name)),
-      ),
-    ) ||
-    list[0]
+  const game = list[0]
   if (!game?.id) throw new Error(`No ScreenScraper match for "${title}"`)
 
   // Phase 2 — full media details

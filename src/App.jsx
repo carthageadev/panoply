@@ -253,7 +253,7 @@ export default function App() {
         })
         const { p, g } = pending.shift()
         const key = statusKey(p, g)
-        const blobKey = `v2:${p.systemId}:${g.title}`
+        const blobKey = `${p.systemId}:${g.title}`
         setStatus(key, 'loading')
         try {
           let blob = await getCachedArt(blobKey)
