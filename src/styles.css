@@ -287,13 +287,6 @@ button.pill:active,
   font-size: 23rem;
 }
 
-.title-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rem;
-}
-
 .hud-bottom {
   left: 24rem;
   right: 24rem;
