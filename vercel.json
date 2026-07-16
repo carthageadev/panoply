@@ -1,0 +1,14 @@
+{
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api2/:path*",
+      "destination": "https://www.screenscraper.fr/api2/:path*"
+    }
+  ]
+}

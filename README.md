@@ -33,7 +33,14 @@ Then open the URL Vite prints (usually http://localhost:5174).
   through Vite's `/api2` proxy to avoid CORS, and cached as image blobs in
   IndexedDB for repeat and offline launches.
   Settings → Platforms → **Scan** clears the cache and refetches.
+- **Offline/PWA:** production builds register `public/sw.js`, cache the app
+  shell, and reuse the IndexedDB art cache offline. A new ScreenScraper scan
+  still requires a connection.
 - **Keys:** ScreenScraper credentials live in `.env` (`VITE_SCREENSCRAPER_*`).
+  These are bundled into the browser build; use a limited/revocable credential
+  if deploying the static client publicly.
+- **Vercel:** `vercel.json` keeps `/api2/*` working through a Vercel rewrite so
+  the static client can use the same ScreenScraper paths after deployment.
 - Games list lives in `src/data/games.js`. Add titles there and Scan.
 
 ## Brand

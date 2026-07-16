@@ -99,6 +99,7 @@ export default function App() {
     )
   }, [])
   const [artMap, setArtMap] = useState({})
+  const [artStatus, setArtStatus] = useState({})
   const [overlay, setOverlay] = useState(
     () => new URLSearchParams(window.location.search).get('overlay'),
   ) // null | settings | apps | inspect
@@ -198,6 +199,13 @@ export default function App() {
     const pending = PLATFORMS.flatMap((p, platformIndex) =>
       p.games.map((g, gameIndex) => ({ p, g, platformIndex, gameIndex })),
     )
+    const statusKey = (p, g) => `${p.id}:${g.title}`
+    const setStatus = (key, state, message = '') =>
+      setArtStatus((prev) => ({ ...prev, [key]: { state, message } }))
+
+    setArtStatus(
+      Object.fromEntries(pending.map(({ p, g }) => [statusKey(p, g), { state: 'queued' }])),
+    )
 
     const nextFrame = () =>
       new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 24)))
@@ -228,11 +236,14 @@ export default function App() {
           return score(a) - score(b)
         })
         const { p, g } = pending.shift()
-        const key = `${p.id}:${g.title}`
+        const key = statusKey(p, g)
         const blobKey = `${p.systemId}:${g.title}`
+        setStatus(key, 'loading')
         try {
           let blob = await getCachedArt(blobKey)
+          let source = 'cached'
           if (!blob) {
+            source = 'live'
             const url =
               cachedLabelUrl(p.systemId, g.title) ||
               (await fetchLabelUrl(g.title, p.systemId, g.search || g.title, { signal }))
@@ -242,10 +253,13 @@ export default function App() {
             blob = await resp.blob()
             await putCachedArt(blobKey, blob)
           }
-          if (!signal.aborted) publish(key, blob)
+          if (!signal.aborted) {
+            publish(key, blob)
+            setStatus(key, 'ready', source)
+          }
         } catch (error) {
           if (error?.name === 'AbortError') return
-          /* keep fallback label for this game */
+          setStatus(key, 'error', error?.message || 'Could not fetch label art')
         }
         await nextFrame()
       }
@@ -358,6 +372,7 @@ export default function App() {
       <Scene
         platforms={PLATFORMS}
         artMap={artMap}
+        artStatus={artStatus}
         carousel={carousel}
         onPick={handlePick}
         onLaunch={handleLaunch}
@@ -424,6 +439,7 @@ export default function App() {
         <SettingsPanel
           platform={platform}
           artMap={artMap}
+          artStatus={artStatus}
           theme={theme}
           setTheme={setTheme}
           uiScale={uiScale}
@@ -449,7 +465,13 @@ export default function App() {
             <p className="muted">Platform: {platform.name}</p>
             <p className="muted">
               Label art:{' '}
-              {artMap[`${platform.id}:${game.title}`] ? 'ScreenScraper (cached)' : 'fallback sample'}
+              {artStatus[`${platform.id}:${game.title}`]?.state === 'ready'
+                ? `ScreenScraper (${artStatus[`${platform.id}:${game.title}`].message})`
+                : artStatus[`${platform.id}:${game.title}`]?.state === 'error'
+                  ? `Fetch failed: ${artStatus[`${platform.id}:${game.title}`].message}`
+                  : artStatus[`${platform.id}:${game.title}`]?.state === 'loading'
+                    ? 'Fetching from ScreenScraper…'
+                    : 'Waiting to fetch'}
             </p>
             <div className="card-actions">
               <button className="pill pill-red" onClick={closeOverlay}>

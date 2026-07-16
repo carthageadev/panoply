@@ -13,6 +13,7 @@ const SECTIONS = [
 export default function SettingsPanel({
   platform,
   artMap,
+  artStatus,
   theme,
   setTheme,
   uiScale,
@@ -27,7 +28,7 @@ export default function SettingsPanel({
   const [section, setSection] = useState('platforms')
   const [feedback, setFeedback] = useState('')
 
-  const artCount = platform.games.filter((g) => artMap[`${platform.id}:${g.title}`]).length
+  const artCount = platform.games.filter((g) => artStatus[`${platform.id}:${g.title}`]?.state === 'ready').length
 
   const scan = async () => {
     const cleared = clearArtCache() // localStorage URL cache
@@ -82,8 +83,10 @@ export default function SettingsPanel({
                 </p>
                 <ul className="game-list">
                   {platform.games.map((g) => (
-                    <li key={g.title}>
-                      <span className={`dot ${artMap[`${platform.id}:${g.title}`] ? 'ok' : ''}`} />
+                    <li key={g.title} title={artStatus[`${platform.id}:${g.title}`]?.message || ''}>
+                      <span
+                        className={`dot dot-${artStatus[`${platform.id}:${g.title}`]?.state || 'queued'}`}
+                      />
                       {g.title}
                     </li>
                   ))}

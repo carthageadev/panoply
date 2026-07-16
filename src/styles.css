@@ -598,8 +598,87 @@ button.pill:active,
   flex: none;
 }
 
-.dot.ok {
+.dot-ready {
   background: var(--green);
+}
+
+.dot-loading {
+  background: var(--blue);
+  animation: art-dot-pulse 0.9s ease-in-out infinite alternate;
+}
+
+.dot-error {
+  background: var(--red);
+}
+
+.dot-queued {
+  background: var(--yellow);
+}
+
+/* Small glass HUD tag that floats above each 3D cartridge while its label is
+   being resolved. The color is deliberately redundant with the icon so the
+   state is still clear at a glance. */
+.art-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5rem;
+  min-width: max-content;
+  padding: 5rem 9rem;
+  border: 1rem solid rgba(255, 255, 255, 0.38);
+  border-radius: 999rem;
+  color: #fff;
+  background: rgba(24, 28, 38, 0.72);
+  box-shadow: 0 4rem 12rem rgba(0, 0, 0, 0.2), inset 0 1rem rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8rem) saturate(1.35);
+  font-size: 10rem;
+  line-height: 1;
+  letter-spacing: 0.6rem;
+  pointer-events: none;
+  transform: translateY(-2rem);
+}
+
+.art-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13rem;
+  height: 13rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 11rem;
+  font-weight: bold;
+}
+
+.art-status-ready {
+  background: rgba(31, 122, 72, 0.78);
+}
+
+.art-status-loading {
+  background: rgba(31, 101, 177, 0.82);
+}
+
+.art-status-error {
+  background: rgba(181, 47, 56, 0.86);
+}
+
+.art-status-queued {
+  background: rgba(112, 86, 25, 0.82);
+}
+
+.art-status-loading .art-status-icon,
+.art-status-queued .art-status-icon {
+  animation: art-dot-pulse 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes art-dot-pulse {
+  from {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.08);
+  }
 }
 
 .add-platform {
